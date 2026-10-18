@@ -121,6 +121,14 @@ class Test(BaseTest):
             max_examples_per_batch=20,
         )
 
+        self.sensitivity_max_assert(
+            gs.attribute,
+            (input1, input2),
+            torch.zeros(5),
+            baselines=(baseline1, torch.zeros_like(input2)),
+            max_examples_per_batch=20,
+        )
+
     def test_convnet_multi_target(self) -> None:
         r"""
         Another test with Saliency, local sensitivity and more
@@ -283,6 +291,43 @@ class Test(BaseTest):
             max_examples_per_batch=30,
         )
         assertTensorAlmostEqual(self, sens1, sens2)
+
+    def test_sensitivity_max_mixed_scalar_baselines(self) -> None:
+        self._sensitivity_max_mixed_baselines(0)
+
+    def test_sensitivity_max_mixed_broadcast_baselines(self) -> None:
+        self._sensitivity_max_mixed_baselines(torch.zeros(1, 2))
+
+    def _sensitivity_max_mixed_baselines(self, baseline: Union[int, Tensor]) -> None:
+        def forward_func(input1: Tensor, input2: Tensor) -> Tensor:
+            return input1.sum(dim=1) + 2 * input2.sum(dim=1)
+
+        def perturb_func(inputs: Tuple[Tensor, ...]) -> Tuple[Tensor, ...]:
+            return tuple(input + 0.25 for input in inputs)
+
+        inputs = (
+            torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+            torch.tensor([[5.0, 6.0], [8.0, 10.0]]),
+        )
+        baselines = (baseline, torch.tensor([[1.0, 2.0], [3.0, 4.0]]))
+        ig = IntegratedGradients(forward_func)
+        # Attributions are [1, 2, 8, 8] and [3, 4, 10, 12].
+        # Each perturbation changes them by [0.25, 0.25, 0.5, 0.5].
+        expected = torch.sqrt(torch.tensor(0.625)) / torch.sqrt(
+            torch.tensor([133.0, 269.0])
+        )
+
+        for max_examples_per_batch in (None, 2, 4):
+            sensitivity = sensitivity_max(
+                ig.attribute,
+                inputs,
+                baselines=baselines,
+                perturb_func=perturb_func,
+                n_perturb_samples=3,
+                max_examples_per_batch=max_examples_per_batch,
+                n_steps=2,
+            )
+            assertTensorAlmostEqual(self, sensitivity, expected, 1e-6)
 
     def test_sensitivity_max_with_feature_mask(self) -> None:
         r"""

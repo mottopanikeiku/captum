@@ -186,6 +186,8 @@ def sensitivity_max(
                 For instance, such arguments include:
                 `additional_forward_args`, `baselines`, `target`,
                 and `feature_mask`.
+                Per-example tensor baselines are expanded with the inputs,
+                including when other inputs use scalar or broadcast baselines.
 
     Returns:
 
@@ -258,9 +260,14 @@ def sensitivity_max(
                 baselines = _format_baseline(
                     baselines, cast(Tuple[Tensor, ...], inputs)
                 )
-                if (
-                    isinstance(baselines[0], Tensor)
-                    and cast(Tensor, baselines[0]).shape == inputs[0].shape
+                if any(
+                    isinstance(baseline, Tensor) and baseline.shape == input.shape
+                    for input, baseline in zip(inputs, baselines)
+                ) and all(
+                    not isinstance(baseline, Tensor)
+                    or baseline.shape == input.shape
+                    or baseline.shape[0] == 1
+                    for input, baseline in zip(inputs, baselines)
                 ):
                     _expand_and_update_baselines(
                         cast(Tuple[Tensor, ...], inputs),
